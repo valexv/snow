@@ -1,0 +1,42 @@
+[package]
+name = "snow_ffi"
+version = "1.6.0"
+edition = "2024"
+description = "Bridge between the Snow core and the native macOS (SwiftUI) frontend, through UniFFI"
+
+[lib]
+# Linked into the Xcode project's app target as libsnow_ffi.a
+crate-type = ["staticlib"]
+
+[dependencies]
+anyhow = "1.0.95"
+cpal = "0.17"
+crossbeam-channel = "0.5.15"
+env_logger = "0.11.6"
+# Builds the discs made from folders, as the egui frontend does
+hadris-iso = { git = "https://github.com/hxyulin/hadris", rev = "8bf2df25d7bfb2aab0b068bfa13d6ad1a244df5e" }
+log = "0.4.22"
+pathdiff = "0.2.3"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"
+sha2 = "0.10.8"
+snow_core = { version = "1.6.0", path = "../../core", features = [
+    "mmap",
+    "savestates",
+    # Ethernet as the egui frontend has it on macOS: NAT, with or without HTTPS
+    # stripping. Bridging (ethernet_raw) isn't in its default build either.
+    "ethernet",
+    "ethernet_nat",
+    "ethernet_nat_https_stripping",
+    "ethernet_nat_mactcp_helpers",
+    # The LaserWriter IISC
+    "printer",
+] }
+# Tells floppy images apart from other files, as the egui frontend does
+snow_floppy = { version = "1.6.0", path = "../../floppy" }
+strum = "0.26.3"
+# Must be the same version as in ../uniffi-bindgen
+uniffi = "=0.32.2"
+
+[lints]
+workspace = true

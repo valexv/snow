@@ -20,3 +20,4 @@ Snow screenshot*.png
 frontend_egui/map_files.rs.inc
 SDL2.dll
 SDL2.lib
+.DS_Store
