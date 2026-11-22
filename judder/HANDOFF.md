@@ -43,7 +43,7 @@ stay on screen for the same number of host refreshes.
   real rate (`MacMonitor::timing()`, `VideoTiming` in `core/src/mac/mod.rs`).
   The LC's V8 and Sonora already did this.
 - `vrr-support`: `frame-pacing-fix`, a merge of `video-refresh-rates`, and the
-  VRR mode (1 commit, not pushed yet). Its own PR, after the other two.
+  VRR mode (1 commit), pushed. Its own PR, after the other two.
   Options > "Variable refresh rate in fullscreen" (`frontend_egui/src/vrr.rs`,
   `FrameNotify` in `core/src/renderer/channel.rs`).
 - `macos-swiftui-frontend`: the SwiftUI frontend (`frontend_macos/`), which
@@ -195,7 +195,6 @@ alias that stands in for `python` until it's installed.
 - PR description drafted in the session; not yet opened. Add commit 6 and the
   Windows findings to it. The `video-refresh-rates` and VRR PRs need the
   trade-offs above.
-- Push `vrr-support`.
 - The 68000 single-step tests fail on this Windows checkout: they look for
   `testdata/m68000/v1/<name>.json(.gz)`, the submodule has `.json.bin`.
   Same on master.
