@@ -4,6 +4,8 @@
 //! Enabled by setting SNOW_JUDDER_LOG to the path of a file to write. Each
 //! line is CSV: microseconds since the log started, event, then up to three
 //! values:
+//! - `raw,dx,dy`: the OS delivered a report of the pointing device (raw input,
+//!   in device units). Logged when handled, which can be well after the report.
 //! - `os,x,y`: the OS delivered a pointer move to the window (physical pixels)
 //! - `in,x,y`: the frontend got a host pointer position (absolute mode)
 //! - `apply,x,y`: the emulator gave the OS a pointer position

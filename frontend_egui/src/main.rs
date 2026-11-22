@@ -335,6 +335,10 @@ fn main() -> eframe::Result {
             device_id: winit::event::DeviceId,
             event: winit::event::DeviceEvent,
         ) {
+            // Judder log: a report of the pointing device, with how far it moved
+            if let winit::event::DeviceEvent::MouseMotion { delta } = &event {
+                snow_core::judder_log::log("raw", delta.0 as i64, delta.1 as i64, 0);
+            }
             self.0.device_event(event_loop, device_id, event);
         }
 

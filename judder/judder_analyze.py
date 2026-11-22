@@ -18,6 +18,40 @@ def stats(name, xs, unit="ms"):
     )
 
 
+def raw_report(raws, moves):
+    """The pointing device's reports (raw input) between the pointer moves the
+    OS gave the window, and whether more reports make longer steps. Raw input
+    is logged when handled, not when reported, so the rate is taken over the
+    whole log rather than from the gaps."""
+    if len(raws) < 2 or len(moves) < 3:
+        return
+    raw_t = [t for t, *_ in raws]
+    # Time the device was moving: gaps between reports under 100 ms
+    moving = sum(min(b - a, 100.0) for a, b in zip(raw_t, raw_t[1:]) if b - a < 100)
+    print(f"\nPointing device (raw input): {len(raws)} reports")
+    if moving > 0:
+        print(f"  rate while moving: about {1000 * len(raws) / moving:.0f} Hz")
+    # Reports and step length (to the mean of the neighbouring steps) per move
+    per = []
+    for i in range(1, len(moves)):
+        t0, x0, y0, _ = moves[i - 1]
+        t1, x1, y1, _ = moves[i]
+        if t1 - t0 > 50:
+            per.append(None)
+            continue
+        n = bisect_right(raw_t, t1) - bisect_right(raw_t, t0)
+        per.append((n, ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5))
+    by_n = {}
+    for prev, cur, nxt in zip(per, per[1:], per[2:]):
+        if not (prev and cur and nxt) or prev[1] < 6 or nxt[1] < 6:
+            continue
+        by_n.setdefault(cur[0], []).append(cur[1] / ((prev[1] + nxt[1]) / 2))
+    print("  reports per pointer move, and its step to the neighbouring steps:")
+    for n in sorted(by_n):
+        rs = by_n[n]
+        print(f"    {n:3d}: {len(rs):6d} moves, step x{st.median(rs):.2f} (median)")
+
+
 def main(path):
     ev = {}
     with open(path) as f:
@@ -44,6 +78,7 @@ def main(path):
         print(f"  guest frames skipped (frontend had not taken previous): {len(skip_t)} of {len(guest)}")
     new_h = sum(1 for h in hframes if h[1] >= 0)
     print(f"  host frames with a new guest frame: {new_h} of {len(hframes)}")
+    raw_report(get("raw"), get("os"))
 
     # Host refreshes each guest frame stayed on screen, from the time to the
     # next new one in units of the typical time between host frames (the

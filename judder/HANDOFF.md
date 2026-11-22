@@ -20,8 +20,8 @@ stay on screen for the same number of host refreshes.
 ## Branches
 
 - `master`: upstream `twvd/snow` master (remote `upstream`), 1fbf26d1.
-- `frame-pacing-fix`: the fix, 5 commits on master, pushed to origin. Meant
-  for the PR.
+- `frame-pacing-fix`: the fix, 6 commits on master. Meant for the PR. Commits
+  1-5 are pushed to origin; 6 is not pushed yet.
   1. Audio: shorter buffers, so the emulator runs in smaller steps
   2. Absolute mouse: give the OS the newest pointer position as the emulator
      runs (`AbsoluteMouseInput` atomic, polled every 1000 instructions)
@@ -32,6 +32,11 @@ stay on screen for the same number of host refreshes.
   5. Lock the machine's frames to the display's refresh
      (`core/src/renderer/display_lock.rs`, Options > "Lock to display
      refresh")
+  6. egui: lock to the display's refresh on Windows too, from DWM's timing
+     (`frontend_egui/src/dwm_timing.rs`: `DwmGetCompositionTimingInfo`, QPC
+     times converted to `Instant`s). Vsync still paces the redraws there.
+     Also allows a clippy lint on the non-macOS `try_redraw` stub, which broke
+     clippy off macOS.
 - `frame-pacing-diagnostics`: `frame-pacing-fix` plus the timing log and this
   folder. Never merge it; rebase it onto `frame-pacing-fix` when that changes.
 - `macos-swiftui-frontend`: the SwiftUI frontend (`frontend_macos/`), which
@@ -54,14 +59,23 @@ The key figures:
 - "host refreshes each guest frame was shown for": on a 120 Hz display a 60 Hz
   machine should show 2 for (nearly) every frame. 1 or 3 is judder.
 - "host pointer input": how evenly the frontend gets pointer moves. On macOS
-  a trackpad moves every 8.3 ms.
+  a trackpad moves every 8.3 ms. On Windows this line is misleading: the
+  frontend reads each position twice per frame, so over half its gaps are
+  ~0 ms. Look at the `os` events instead.
+- "Pointing device (raw input)": the device's report rate, and how long the
+  steps are with 1, 2 or 3 reports between two pointer moves. Raw input is
+  logged when handled, not when reported, so its gaps mean nothing on their
+  own.
 - "uneven" host frames and their causes: where cursor stalls/jumps come from.
 
-On Windows (PowerShell):
+On Windows (PowerShell), with the release build already made:
 
 ```
-$env:SNOW_JUDDER_LOG = "$HOME\snow-judder.csv"; cargo run --release -p snow_frontend_egui
+$env:SNOW_JUDDER_LOG = "$HOME\snow-judder.csv"; .\target\release\snowemu.exe
 ```
+
+Python from python.org (winget `Python.Python.3.13`), not the Microsoft Store
+alias that stands in for `python` until it's installed.
 
 ## Findings so far (macOS, Mac Plus, 120 Hz ProMotion, Magic Trackpad 2)
 
@@ -80,20 +94,36 @@ $env:SNOW_JUDDER_LOG = "$HOME\snow-judder.csv"; cargo run --release -p snow_fron
 - egui asks for an immediate repaint every frame (cause unknown); the pacer
   (or vsync) hides it.
 
-## Windows: what to test
+## Findings on Windows (2026-11-22; Windows 11, Mac Plus, basic USB optical mouse)
 
-- Commit 3 is macOS-only. On Windows, eframe still uses vsync, so the
-  input-lumping problem may happen there too. Check "host pointer input" in a
-  log while moving the mouse steadily.
-- `frame_pacer::refresh_grid()` returns None off macOS, so the display lock
-  never engages on Windows: expect a frame shown for 1 or 3 refreshes every
-  few seconds (60.15 Hz machine vs 60 Hz display). A Windows fix would need
-  the refresh timing from somewhere, e.g. DXGI `GetFrameStatistics` or
-  `DwmGetCompositionTimingInfo`.
-- Commits 1, 2 and 4 are in the core and apply as-is. Check that audio sounds
-  right (startup chime, then a game or sound sample), with both the cpal and
-  the SDL2 backends.
-- The diagnostic log itself hasn't been tried on Windows.
+- The diagnostic log works on Windows as is.
+- Vsync still blocks the main thread 96-98% of the time, and Windows coalesces
+  pointer moves, so the window gets exactly one pointer move per refresh. They
+  come evenly, not in lumps as on macOS before commit 3. Left as is.
+- 100 Hz display: frames shown 2, 2, 1 refreshes (66/34%), as 100/60 forces.
+  No lock can fix that without running the machine far off real speed.
+- 60 Hz display, no lock: guest 60.13 Hz against the display's 59.95 Hz, so
+  it gains a frame every ~5.6 s, and each time a burst of ~10 skipped and
+  doubled frames over 0.5-1 s, as the jitter flips frames across the refresh.
+- 60 Hz display, with commit 6: guest 59.99 Hz, 99.5-99.7% of frames shown
+  exactly 1 refresh, no bursts. DWM reported 59.973 Hz.
+- Remaining unevenness (~24% of host frames "uneven" by the analyzer) comes
+  from the mouse, measured with raw input: it reports at ~124 Hz, so 2.07
+  reports per 60 Hz frame. Steps with 1, 2, 3 reports are 0.48x, 0.97x and
+  1.48x their neighbours; ~8% of frames get 3. The guest cursor follows the
+  positions it's given exactly. The Windows desktop cursor has the same
+  cadence with this mouse; the Mac's trackpad (8.3 ms) gives exactly 2 per
+  frame, which is why it looked smoother there.
+- Decided against the fix for that (a raw-input thread with timestamped
+  positions, and the guest given the position one report ago, interpolated):
+  too much for a small difference, which a 500-1000 Hz mouse removes anyway.
+
+## Windows: still to test
+
+- Audio: the startup chime and a game or sound sample, with the cpal and the
+  SDL2 (`--features audio_sdl2`) backends. Not checked yet.
+- Several displays at different refresh rates: DWM's timing is the main
+  display's, so the lock follows that one even with the window elsewhere.
 
 ## Open items
 
@@ -104,4 +134,9 @@ $env:SNOW_JUDDER_LOG = "$HOME\snow-judder.csv"; cargo run --release -p snow_fron
   CADisplayLink into `DisplayLock`.
 - Upstream's `CpalAudioStreamSink::send` sleeps for a dead stream; that's now
   redundant with `PacedAudioSink`. Harmless.
-- PR description drafted in the session; not yet opened.
+- PR description drafted in the session; not yet opened. Add commit 6 and the
+  Windows findings to it.
+- Push `frame-pacing-fix` (commit 6) and force-push the rebased
+  `frame-pacing-diagnostics`.
+- `cargo fmt --check` fails on `core/src/renderer/display_lock.rs` (a long
+  `assert!` in the tests, from commit 5). Fix before opening the PR.
