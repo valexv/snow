@@ -595,6 +595,7 @@ impl EmulatorState {
             MouseMode::Absolute => {
                 if let (Some(abs_p), Some(abs_mouse)) = (abs_p, &self.abs_mouse) {
                     abs_mouse.set(abs_p.x as u16, abs_p.y as u16);
+                    snow_core::judder_log::log("in", abs_p.x as i64, abs_p.y as i64, 0);
                 }
             }
             MouseMode::RelativeHw => {

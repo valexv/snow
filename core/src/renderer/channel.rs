@@ -30,7 +30,11 @@ impl Renderer for ChannelRenderer {
     }
 
     fn frame_wanted(&self) -> bool {
-        self.channel.lock().unwrap().is_none()
+        let wanted = self.channel.lock().unwrap().is_none();
+        if !wanted {
+            crate::judder_log::log("gskip", 0, 0, 0);
+        }
+        wanted
     }
 
     /// Renders changes to screen
@@ -38,6 +42,7 @@ impl Renderer for ChannelRenderer {
         let new_buffer = self.displaybuffer.new_from_this();
         let mut buffer = std::mem::replace(&mut self.displaybuffer, new_buffer);
         buffer.set_rendered();
+        buffer.seq = crate::judder_log::frame_rendered();
         *self.channel.lock().unwrap() = Some(buffer);
         Ok(())
     }

@@ -112,12 +112,15 @@ impl FramebufferWidget {
     }
 
     pub fn draw(&mut self, ui: &mut egui::Ui, fullscreen: bool) -> egui::Response {
-        if let Some(ref frame_recv) = self.frame_recv
-            && let Some(frame) = {
-                let mut lock = frame_recv.lock().unwrap();
-                lock.take()
-            }
-        {
+        let new_frame = self
+            .frame_recv
+            .as_ref()
+            .and_then(|r| r.lock().unwrap().take());
+        if self.frame_recv.is_some() {
+            let seq = new_frame.as_ref().map_or(-1, |f| f.seq() as i64);
+            snow_core::judder_log::log("hframe", seq, 0, 0);
+        }
+        if let Some(frame) = new_frame {
             self.new_frame_rendered = frame.rendered();
             self.display_size = [frame.width(), frame.height()];
             self.viewport_texture.set(

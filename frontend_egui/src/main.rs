@@ -240,11 +240,15 @@ fn main() -> eframe::Result {
             event_loop: &winit::event_loop::ActiveEventLoop,
             window_id: winit::window::WindowId,
         ) {
+            // Judder log: how long eframe holds the main thread for a redraw
+            // (update, paint and buffer swap), in microseconds
+            let start = std::time::Instant::now();
             self.0.window_event(
                 event_loop,
                 window_id,
                 winit::event::WindowEvent::RedrawRequested,
             );
+            snow_core::judder_log::log("redraw", start.elapsed().as_micros() as i64, 0, 0);
         }
     }
 
@@ -254,6 +258,14 @@ fn main() -> eframe::Result {
             event_loop: &winit::event_loop::ActiveEventLoop,
             cause: winit::event::StartCause,
         ) {
+            // Judder log: why the event loop woke up
+            let why = match cause {
+                winit::event::StartCause::ResumeTimeReached { .. } => 1,
+                winit::event::StartCause::WaitCancelled { .. } => 2,
+                winit::event::StartCause::Poll => 3,
+                winit::event::StartCause::Init => 4,
+            };
+            snow_core::judder_log::log("wake", why, 0, 0);
             self.0.new_events(event_loop, cause);
         }
 
@@ -275,6 +287,10 @@ fn main() -> eframe::Result {
             window_id: winit::window::WindowId,
             event: winit::event::WindowEvent,
         ) {
+            if let winit::event::WindowEvent::CursorMoved { position, .. } = &event {
+                snow_core::judder_log::log("os", position.x as i64, position.y as i64, 0);
+            }
+
             // Send the WindowEvent through the channel
             let _ = self.1.send(event.clone());
 
@@ -323,6 +339,8 @@ fn main() -> eframe::Result {
         }
 
         fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+            snow_core::judder_log::log("idle", 0, 0, 0);
+
             // A redraw held back by the frame pacer, once the display refreshed
             if let Some(window_id) = self.4
                 && self

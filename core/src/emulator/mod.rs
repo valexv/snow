@@ -205,6 +205,9 @@ const ADDR_RAWMOUSE_Y: Address = 0x082C;
 const ADDR_RAWMOUSE_X: Address = 0x082E;
 /// CrsrNew
 const ADDR_CRSRNEW: Address = 0x08CE;
+/// Mouse (low memory global): where the cursor is, as Y, X
+const ADDR_MOUSE_Y: Address = 0x0830;
+const ADDR_MOUSE_X: Address = 0x0832;
 
 /// Least time between two looks at the memory notifiers while running. Debugging
 /// mostly happens stopped, where each step or stop looks at them regardless.
@@ -442,6 +445,8 @@ pub struct Emulator {
     abs_mouse_applied: Option<(u16, u16)>,
     /// Speed of the machine relative to the real one, for a display lock
     pace: PaceControl,
+    /// Last frame the cursor position was logged for, in the judder log
+    judder_frame: u64,
 }
 
 impl Emulator {
@@ -776,6 +781,7 @@ impl Emulator {
             abs_mouse_input: AbsoluteMouseInput::default(),
             abs_mouse_applied: None,
             pace: PaceControl::default(),
+            judder_frame: 0,
         };
         emu.status_update()?;
 
@@ -836,6 +842,7 @@ impl Emulator {
             abs_mouse_input: AbsoluteMouseInput::default(),
             abs_mouse_applied: None,
             pace: PaceControl::default(),
+            judder_frame: 0,
         };
         emu.status_update()?;
 
@@ -1180,11 +1187,29 @@ impl Emulator {
             return;
         }
         self.abs_mouse_applied = Some((x, y));
+        crate::judder_log::log("apply", x.into(), y.into(), 0);
         if let Some(r) = self.record_input.as_mut() {
             r.push((
                 self.config.cpu_cycles(),
                 EmulatorCommand::MouseUpdateAbsolute { x, y },
             ));
+        }
+    }
+
+    /// Logs where the cursor is for a newly rendered frame, in the judder log
+    fn judder_log_cursor(&mut self) {
+        if !crate::judder_log::enabled() {
+            return;
+        }
+        let seq = crate::judder_log::last_frame();
+        if seq == self.judder_frame {
+            return;
+        }
+        self.judder_frame = seq;
+        let x = self.config.cpu_inspect_read_word(ADDR_MOUSE_X, false);
+        let y = self.config.cpu_inspect_read_word(ADDR_MOUSE_Y, false);
+        if let (Some(x), Some(y)) = (x, y) {
+            crate::judder_log::log("fcursor", seq as i64, x.into(), y.into());
         }
     }
 
@@ -2289,6 +2314,7 @@ impl Tickable for Emulator {
                     Err(e) => self.step_failed(&e),
                 }
                 self.poll_localtalk_bridge();
+                self.judder_log_cursor();
             }
 
             // Honour any writeback requests raised during this tick batch

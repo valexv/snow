@@ -71,6 +71,8 @@ pub struct DisplayBuffer {
     frame: Vec<u8>,
     /// When the frame was done
     rendered: Option<Instant>,
+    /// Sequence number of the frame, for the judder log
+    seq: u64,
 }
 
 impl DisplayBuffer {
@@ -83,6 +85,7 @@ impl DisplayBuffer {
             height,
             frame: Self::allocate_buffer(width, height),
             rendered: None,
+            seq: 0,
         }
     }
 
@@ -99,6 +102,7 @@ impl DisplayBuffer {
             height: self.height,
             frame: Self::allocate_buffer(self.width, self.height),
             rendered: None,
+            seq: 0,
         }
     }
 
@@ -110,6 +114,11 @@ impl DisplayBuffer {
     /// When the frame was done, if it is
     pub const fn rendered(&self) -> Option<Instant> {
         self.rendered
+    }
+
+    /// Sequence number of the frame, for the judder log
+    pub fn seq(&self) -> u64 {
+        self.seq
     }
 
     pub fn width(&self) -> u16 {
