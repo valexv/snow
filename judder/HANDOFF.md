@@ -20,8 +20,7 @@ stay on screen for the same number of host refreshes.
 ## Branches
 
 - `master`: upstream `twvd/snow` master (remote `upstream`), 1fbf26d1.
-- `frame-pacing-fix`: the fix, 6 commits on master. Meant for the PR. Commits
-  1-5 are pushed to origin; 6 is not pushed yet.
+- `frame-pacing-fix`: the fix, 6 commits on master, pushed. Meant for the PR.
   1. Audio: shorter buffers, so the emulator runs in smaller steps
   2. Absolute mouse: give the OS the newest pointer position as the emulator
      runs (`AbsoluteMouseInput` atomic, polled every 1000 instructions)
@@ -39,6 +38,14 @@ stay on screen for the same number of host refreshes.
      clippy off macOS.
 - `frame-pacing-diagnostics`: `frame-pacing-fix` plus the timing log and this
   folder. Never merge it; rebase it onto `frame-pacing-fix` when that changes.
+- `video-refresh-rates`: 1 commit on master, pushed. Its own PR. The Toby,
+  MDC 8-24, SE/30 video and DAFB ran at a fixed 60 Hz; now each monitor's
+  real rate (`MacMonitor::timing()`, `VideoTiming` in `core/src/mac/mod.rs`).
+  The LC's V8 and Sonora already did this.
+- `vrr-support`: `frame-pacing-fix`, a merge of `video-refresh-rates`, and the
+  VRR mode (1 commit, not pushed yet). Its own PR, after the other two.
+  Options > "Variable refresh rate in fullscreen" (`frontend_egui/src/vrr.rs`,
+  `FrameNotify` in `core/src/renderer/channel.rs`).
 - `macos-swiftui-frontend`: the SwiftUI frontend (`frontend_macos/`), which
   doesn't have the fix yet.
 
@@ -118,10 +125,61 @@ alias that stands in for `python` until it's installed.
   positions, and the guest given the position one report ago, interpolated):
   too much for a small difference, which a 500-1000 Hz mouse removes anyway.
 
+## Real refresh rates (`video-refresh-rates`)
+
+- Rates from the dot clock and total dots/lines of each monitor, checked
+  against Apple's published figures: 60.15 Hz (12" RGB), 66.67 (13"/14"),
+  74.55 (16"), 75.00 (Portrait), 75.06 (21" RGB, Two-Page), 74.93 (19"),
+  59.94 (VGA). Unit tests in `core/src/mac/mod.rs`.
+- Checked by booting headless (a throwaway program, not committed): Mac II
+  with the Toby 66.66 Hz, SE/30 60.14 Hz, Quadra 700 on the 13", 16", 21"
+  66.67, 74.55, 75.06 Hz. After 20 s each showed exactly the same screen as
+  on master. Not checked: the MDC 8-24 (no ROM), a full boot into System 7.
+- Trade-off, for the PR: on a fixed 60 Hz display, 66.67 and 75 Hz machines
+  can't be shown smoothly. The machine runs at full speed, but the card
+  skips building a frame when the frontend hasn't taken the last one
+  (`frame_wanted()`), about 1 in 10 at 66.67 Hz and 1 in 5 at 75 Hz: a
+  regular stutter. Before, they ran at 60 Hz and could be smooth there.
+  Decided to keep real rates with no 60 Hz option, and say so in the PR.
+
+## VRR (`vrr-support`; Windows 11, AMD RX 6800 XT, 100 Hz FreeSync 48-100 Hz)
+
+- Measured with PresentMon (console version, admin; run it from its folder,
+  `.\PresentMon-2.6.0-x64.exe --process_name snowemu.exe --timed 20
+  --terminate_after_timed`, which writes `PresentMon-<date>.csv` there). The
+  columns that matter: PresentMode, MsBetweenDisplayChange, MsUntilDisplayed.
+  Snow's own log can't tell VRR apart: at one frame per refresh or slower,
+  the swap returns at once either way.
+- Windowed: "Composed: Copy with GPU GDI" (DWM copies the OpenGL window),
+  display at a fixed 100 Hz. VRR can't engage; it would need a DXGI flip
+  model swap chain (wgpu, or OpenGL-DXGI interop). Hence fullscreen only.
+- Fullscreen: the AMD driver presents through DXGI, "Hardware Composed:
+  Independent Flip", and FreeSync follows the presents.
+- First try woke the redraw through egui's `request_repaint`, which failed:
+  egui drops a request when one is pending (`context.rs:160`), and every
+  immediate request repaints twice (`outstanding = 1`, `context.rs:142`),
+  leaving one pending. Frames waited 0-8 ms for an unrelated wake, 5.6% were
+  dropped. This is also the "immediate repaint every frame" from the macOS
+  findings. Fixed by waking winit directly (an eframe `UserEvent` with a
+  marker pass number, caught in the `AppWrapper` before eframe sees it) and
+  drawing in `about_to_wait`: frame ready to redraw 0.1 ms, 0.7% dropped.
+- Result, Mac II on the Toby (66.67 Hz), fullscreen: 66.8 Hz, each frame on
+  screen ~0.4 ms after the present, display gaps p10/p50/p90 13.9/14.9/16.1
+  ms, 98.8% within 1 ms of the present gaps. The spread is the guest's own
+  ~±1 ms frame timing (the emulator runs in bursts). Looked smooth; paced
+  presents (each frame at frame number x period + ~2 ms) would even it out
+  if needed.
+- Trade-off, for the PR: on a display without VRR, or a machine faster than
+  the display's maximum, the mode is worse than off: the display lock is off
+  in it, and frames queue behind vsync and get skipped. Off by default, and
+  the option says it's for VRR displays.
+- Each update spends a steady ~2.8 ms before it reaches the framebuffer, then
+  ~0.9 ms to paint and swap: latency, not unevenness. Not looked into.
+
 ## Windows: still to test
 
-- Audio: the startup chime and a game or sound sample, with the cpal and the
-  SDL2 (`--features audio_sdl2`) backends. Not checked yet.
+- Audio with the SDL2 backend (`--features audio_sdl2`). The cpal backend
+  sounded right on the `vrr-support` build.
 - Several displays at different refresh rates: DWM's timing is the main
   display's, so the lock follows that one even with the window elsewhere.
 
@@ -135,8 +193,11 @@ alias that stands in for `python` until it's installed.
 - Upstream's `CpalAudioStreamSink::send` sleeps for a dead stream; that's now
   redundant with `PacedAudioSink`. Harmless.
 - PR description drafted in the session; not yet opened. Add commit 6 and the
-  Windows findings to it.
-- Push `frame-pacing-fix` (commit 6) and force-push the rebased
-  `frame-pacing-diagnostics`.
+  Windows findings to it. The `video-refresh-rates` and VRR PRs need the
+  trade-offs above.
+- Push `vrr-support`.
+- The 68000 single-step tests fail on this Windows checkout: they look for
+  `testdata/m68000/v1/<name>.json(.gz)`, the submodule has `.json.bin`.
+  Same on master.
 - `cargo fmt --check` fails on `core/src/renderer/display_lock.rs` (a long
   `assert!` in the tests, from commit 5). Fix before opening the PR.
